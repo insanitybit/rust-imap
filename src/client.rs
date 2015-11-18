@@ -298,7 +298,13 @@ impl IMAPStream {
 					line_buffer.push(byte_buffer[0]);
 			}
 
-			let line = String::from_utf8(line_buffer).unwrap();
+			let line = match String::from_utf8(line_buffer) {
+				Ok(l)	=> l,
+				Err(e)	=> {
+					let msg = format!("Error converting email to string: {}", e);
+					return Err(Error::new(ErrorKind::Other, msg));
+				}
+			};
 
 			lines.push(line.clone());
 
