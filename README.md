@@ -13,7 +13,7 @@ Currently I've made pushed few changes, notably:
 * Move to openssl 0.7.0
 * Implement an IMAPError type
 * Remove any/ all raw unwrapping
-
+* Documentation/ #![deny(missing_docs)]
 
 ### License
 
