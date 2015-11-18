@@ -9,8 +9,8 @@ readme = "README.md"
 license = "MIT"
 
 [dependencies]
-openssl = "*"
-regex = "*"
+openssl = "0.6.7"
+regex = "0.1.41"
 
 [[bin]]
 name = "example"
