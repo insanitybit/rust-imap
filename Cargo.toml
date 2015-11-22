@@ -9,9 +9,6 @@ readme = "README.md"
 license = "MIT"
 
 [dependencies]
-openssl = "0.6.7"
+openssl = "0.7.0"
 regex = "0.1.41"
-
-[[bin]]
-name = "example"
-path = "example.rs"
+rand = "0.3.*"

@@ -3,7 +3,7 @@ rust-imap
 IMAP Client for Rust
 
 This is a fork of [this repo](https://github.com/mattnenterprise/rust-imap) with
-some (but as few as possible) breaking API changes.
+some changes.
 
 Currently I've made pushed few changes, notably:
 * No longer using wildcards for dependency versions
@@ -14,6 +14,7 @@ Currently I've made pushed few changes, notably:
 * Implement an IMAPError type
 * Remove any/ all raw unwrapping
 * Documentation/ #![deny(missing_docs)]
+* Expose client state, handle state according to IMAP spec
 
 ### License
 
