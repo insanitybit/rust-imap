@@ -1,16 +1,18 @@
 #![allow(unused_variables, unused_imports, dead_code)]
 extern crate openssl;
 extern crate rand;
+extern crate regex;
 
 pub mod imaperror;
-use imaperror::IMAPError;
 
-use std::net::TcpStream;
+use imaperror::IMAPError;
 use openssl::ssl::{SslContext, SslStream, SslMethod, Ssl};
+use rand::Rng;
+use regex::Regex;
 use std::io::prelude;
 use std::io::{Write, Read};
+use std::net::TcpStream;
 use std::time::Duration;
-use rand::Rng;
 
 #[derive(Debug)]
 pub enum IMAPConnection {
@@ -40,10 +42,32 @@ pub struct MailServer {
     tag: Tag,
 }
 
+
+
 #[derive(Debug)]
 pub struct Mailbox {
     imap: IMAPConnection,
     tag: Tag,
+    flags: String,
+    exists: String,
+    recent: String,
+    unseen: Option<String>,
+    permanentflags: Option<String>,
+    uidnext: Option<String>,
+    uidvalidity: Option<String>,
+    permission: Option<String>
+}
+
+#[derive(Debug)]
+pub struct MailboxResponse {
+    flags: String,
+    exists: String,
+    recent: String,
+    unseen: Option<String>,
+    permanentflags: Option<String>,
+    uidnext: Option<String>,
+    uidvalidity: Option<String>,
+    permission: Option<String>
 }
 
 pub type SequenceSet = (u32, u32);
@@ -195,11 +219,19 @@ impl IMAPClient {
                 let cmd = format!("{} {}\r\n", tag, cmd);
                 match server.command(&cmd) {
                     Ok(res) => {
-                        match IMAPClient::check_response(res) {
-                                Ok(_)   => {
+                        match IMAPClient::check_select_response(&res, &tag) {
+                                Ok(mailres)   => {
                                     let mailbox = Mailbox {
                                         imap: server.imap,
                                         tag: server.tag,
+                                        flags: mailres.flags,
+                                        exists: mailres.exists,
+                                        recent: mailres.recent,
+                                        unseen: mailres.unseen,
+                                        permanentflags: mailres.permanentflags,
+                                        uidnext: mailres.uidnext,
+                                        uidvalidity: mailres.uidvalidity,
+                                        permission: mailres.permission
                                     };
                                     Ok(IMAPClient::Selected(mailbox))
                                 },
@@ -269,6 +301,58 @@ impl IMAPClient {
         Ok(buf)
     }
 
+    fn capture_response(response: &str, re: Regex) -> Result<String, IMAPError> {
+        let cap = re.captures_iter(response).next();
+
+        let exists = match cap {
+            Some(cap)   => cap.at(1),
+            None    => return Err(IMAPError::Invalid("Could not find required response command".to_owned()))
+        };
+
+        match exists {
+            Some(value) => Ok(value.to_owned()),
+            None    => Err(IMAPError::Invalid("Could not find required response for command".to_owned()))
+        }
+    }
+
+    fn check_select_response(response: &str, tag: &str) -> Result<MailboxResponse, IMAPError> {
+        let existsre = Regex::new(r"(\d+) EXISTS\r\n").unwrap();
+        let recentre = Regex::new(r"(\d+) RECENT\r\n").unwrap();
+        let flagsre = Regex::new(r"FLAGS \(([^\)]+)\)").unwrap();
+        let unseenre = Regex::new(r"\* OK \[UNSEEN (\d+)\]").unwrap();
+        let permanentflagsre = Regex::new(r"PERMANENTFLAGS \(([^\)]+)\)").unwrap();
+        let uidnextre = Regex::new(r"\* OK \[UIDNEXT (\d+)\]").unwrap();
+        let uidvalidityre = Regex::new(r"\* OK \[UIDVALIDITY (\d+)\]").unwrap();
+        let permissionre = Regex::new(r" OK \[([^\]]+)\] SELECT").unwrap();
+
+        let exists = try!(IMAPClient::capture_response(response, existsre));
+        let recent = try!(IMAPClient::capture_response(response, recentre));
+        let flags = try!(IMAPClient::capture_response(response, flagsre));
+
+        let unseen = IMAPClient::capture_response(response, unseenre).ok();
+        let permanentflags = IMAPClient::capture_response(response, permanentflagsre).ok();
+        let uidnext = IMAPClient::capture_response(response, uidnextre).ok();
+        let uidvalidity = IMAPClient::capture_response(response, uidvalidityre).ok();
+        let mut permission = None;
+
+        let tagged_ok = tag.to_owned() + " OK";
+
+        if let Some(index) = response.find(&tagged_ok) {
+            let view = &response[index+ tag.len()..];
+            permission = IMAPClient::capture_response(view, permissionre).ok();
+        }
+        Ok(MailboxResponse {
+            exists:exists,
+            recent:recent,
+            flags:flags,
+            unseen:unseen,
+            permanentflags:permanentflags,
+            uidnext:uidnext,
+            uidvalidity:uidvalidity,
+            permission: permission
+        })
+    }
+
     fn check_response(response: String) -> Result<String, IMAPError> {
         if response.len() < 4 {return Err(IMAPError::Invalid(response))}
         let view: &[u8] = &response.as_bytes()[0..4];
@@ -283,7 +367,7 @@ impl IMAPClient {
 
     fn check_tagged_response(response: String, tag: &str) -> Result<String, IMAPError> {
         if response.len() < tag.len() {return Err(IMAPError::Invalid(response))}
-        Ok(response)
+
         let view: &[u8] = &response.as_bytes()[0..tag.len()];
 
         if view == tag.as_bytes() {
