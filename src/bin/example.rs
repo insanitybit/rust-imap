@@ -27,8 +27,11 @@ fn main() {
     // If we're authenticated we can select.
     if let &IMAPClient::Authenticated(_) = &client {
         let client = client.select("INBOX").unwrap();
+
+        // Once we are in the Selected state we can access more commands through the 'Mailbox' struct
         if let IMAPClient::Selected(mut inbox) = client {
             // Grab the first 3 emails
+            let _ = inbox.fetch((0,2));
         }
     }
 
