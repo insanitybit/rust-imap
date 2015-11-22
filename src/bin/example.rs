@@ -1,33 +1,20 @@
+#![allow(unused_variables)]
+extern crate imap;
 
-pub enum Optional<T> {
-    Nothing,
-    Something(T),
-}
+use imap::{IMAPConnection, IMAPClient};
 
 fn main() {
-    let nothing : Optional<&str> =  Optional::Nothing;
-    let something = Optional::Something("hello");
 
-    let vec = vec![nothing, something];
+    let con = IMAPConnection::new_tls("imap.gmail.com", 993).unwrap();
 
-    for thing in vec {
-        match thing {
-            Optional::Nothing   => println!("Nothing"),
-            Optional::Something(value)  => println!("Something: {}", value)
-        }
-    }
+    let client = IMAPClient::connect(con).unwrap();
+    let client = client.login("thomasmcvane@gmail.com", "iamveryvain");
+    println!("{:#?}", client);
+    // let mut client = client.select("INBOX").unwrap();
+    //
+    // if let &mut IMAPClient::Selected(ref mut mailbox) = &mut client {
+    //     let email = mailbox.fetch((0,2)).unwrap();
+    //     println!("{}", email);
+    // }
 
 }
-// Guaranteed memory safety:
-//
-// Threads without data races:
-//
-// Trait-based generics:
-//
-// Pattern matching:
-//
-// Type inference:
-//
-// Minimal runtime:
-//
-// Efficient C Bindings:

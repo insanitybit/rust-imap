@@ -43,7 +43,7 @@ impl IMAPConnection {
                                              -> Result<IMAPConnection, IMAPError> {
         let host = host.into();
         let server = host + ":" + &port.to_string();
-        
+
         let stream = {
             let stream = try!(TcpStream::connect(&*server));
             let _ = try!(stream.set_read_timeout(Some(Duration::from_secs(2))));
@@ -212,18 +212,30 @@ impl IMAPClient {
         }
     }
 
-    fn read_greeting<T: Read + Write>(socket: &mut T) -> Result<Vec<u8>, IMAPError> {
-        let mut buffer = Vec::new();
-        let r = try!(socket.read_to_end(&mut buffer));
+    fn read_greeting<T: Read + Write>(stream: &mut T) -> Result<String, IMAPError> {
 
-        {
-            let st = String::from_utf8_lossy(&buffer);
-            println!("STRING IS {}", st);
-        }
-
-
-        Ok(buffer)
+        let mut buf = String::new();
+        let _ = stream.read_to_string(&mut buf);
+        Ok(buf)
     }
+}
+
+pub type SequenceSet = (u32, u32);
+
+
+#[derive(Debug)]
+pub enum Macro {
+    All,
+    Fast,
+    Full,
+}
+
+#[derive(Debug)]
+pub enum ResponseType {
+    OK,
+    No,
+    Bad,
+    Invalid
 }
 
 
@@ -240,19 +252,75 @@ pub struct MailServer {
 }
 
 impl Mailbox {
+
+
+
+    // fn CHECK() -> TypeName {
+    // unimplemented!()
+    // }
+    //
+    // fn CLOSE() -> TypeName {
+    // unimplemented!()
+    // }
+    //
+    // fn EXPUNGE() -> TypeName {
+    // unimplemented!()
+    // }
+    //
+    // fn SEARCH() -> TypeName {
+    // unimplemented!()
+    // }
+
+    fn fetch(&mut self, sequence_set: SequenceSet) -> Result<String, IMAPError> {
+
+        let args = format!("{}:{}",sequence_set.0.to_string(), sequence_set.1.to_string());
+        let cmd = format!("{} FETCH {}\r\n", self.tag.next_tag(), args);
+
+        match self.command(&cmd) {
+            Ok(r)  => Ok(r),
+            Err(e)  => Err(e),
+        }
+    }
+
+    // fn STORE() -> TypeName {
+    // unimplemented!()
+    // }
+    //
+    // fn COPY() -> TypeName {
+    // unimplemented!()
+    // }
+    //
+    // fn UID() -> TypeName {
+    // unimplemented!()
+    // }
+
+
+    fn check_response(response: String) -> Result<String, IMAPError> {
+        let view : &[u8] = &response.as_bytes()[0..4];
+
+        match view {
+            b"* OK"  => return Ok(response.to_owned()),
+            b"* NO"  => return Err(IMAPError::No(response.to_owned())),
+            b"* BA"  => return Err(IMAPError::Bad(response.to_owned())),
+            _   => return Err(IMAPError::Invalid(response.to_owned())),
+        }
+    }
+
     fn command(&mut self, cmd: &str) -> Result<String, IMAPError> {
         match &mut self.imap {
             &mut IMAPConnection::Basic(ref mut stream) => {
-                let _ = try!(stream.write(cmd.as_bytes()));
+                let _ = stream.write(cmd.as_bytes());
                 let mut buf = String::new();
-                let _ = try!(stream.read_to_string(&mut buf));
-                Ok(buf)
+                let _ = stream.read_to_string(&mut buf);
+                let response = try!(Mailbox::check_response(buf.clone()));
+                Ok(response)
             },
             &mut IMAPConnection::Ssl(ref mut stream) => {
-                let _ = try!(stream.write(cmd.as_bytes()));
+                let _ = stream.write(cmd.as_bytes());
                 let mut buf = String::new();
-                let _ = try!(stream.read_to_string(&mut buf));
-                Ok(buf)
+                let _ = stream.read_to_string(&mut buf);
+                let response = try!(Mailbox::check_response(buf.clone()));
+                Ok(response)
             },
             &mut IMAPConnection::Disconnected =>
                 Err(IMAPError::LoginError("Not connected to server.".to_owned())),
@@ -262,18 +330,21 @@ impl Mailbox {
 
 impl MailServer {
     fn command(&mut self, cmd: &str) -> Result<String, IMAPError> {
-        println!("{}", cmd);
         match &mut self.imap {
             &mut IMAPConnection::Basic(ref mut stream) => {
-                let _ = try!(stream.write(cmd.as_bytes()));
+                let _ = stream.write(cmd.as_bytes());
                 let mut buf = String::new();
-                let _ = try!(stream.read_to_string(&mut buf));
+                let _ = stream.read_to_string(&mut buf);
+                let response = try!(Mailbox::check_response(buf.clone()));
+                println!("{}", buf);
                 Ok(buf)
             },
             &mut IMAPConnection::Ssl(ref mut stream) => {
-                let _ = try!(stream.write(cmd.as_bytes()));
+                let _ = stream.write(cmd.as_bytes());
                 let mut buf = String::new();
-                let _ = try!(stream.read_to_string(&mut buf));
+                let _ = stream.read_to_string(&mut buf);
+                let response = try!(Mailbox::check_response(buf.clone()));
+                println!("{}", buf);
                 Ok(buf)
             },
             &mut IMAPConnection::Disconnected =>
@@ -282,17 +353,8 @@ impl MailServer {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fake_main() {
-
-        let con = IMAPConnection::new_tls("imap.gmail.com", 993).unwrap();
-
-        let client = IMAPClient::connect(con).unwrap();
-        // let client = client.login("thomasmcvane@gmail.com", "iamveryvain").unwrap();
-        // let client = client.select("INBOX").unwrap();
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//
+// }
