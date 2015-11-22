@@ -19,6 +19,42 @@ pub enum IMAPConnection {
     Disconnected,
 }
 
+
+#[derive(Debug)]
+pub enum IMAPClient {
+    Authenticated(MailServer),
+    UnAuthenticated(MailServer),
+    Selected(Mailbox),
+    Logout,
+}
+
+#[derive(Debug)]
+struct Tag {
+    tag_prefix: String,
+    tag: u32,
+}
+
+#[derive(Debug)]
+pub struct MailServer {
+    imap: IMAPConnection,
+    tag: Tag,
+}
+
+#[derive(Debug)]
+pub struct Mailbox {
+    imap: IMAPConnection,
+    tag: Tag,
+}
+
+pub type SequenceSet = (u32, u32);
+
+#[derive(Debug)]
+pub enum Macro {
+    All,
+    Fast,
+    Full,
+}
+
 impl IMAPConnection {
 
     pub fn new() -> IMAPConnection {
@@ -60,26 +96,19 @@ impl IMAPConnection {
     }
 }
 
-#[derive(Debug)]
-struct Tag {
-    tag_prefix: String,
-    tag: u32
-}
-
 impl Tag {
     fn new() -> Tag {
         let mut rng = rand::thread_rng();
-        let rstr: String = rng
-        .gen_ascii_chars()
-        .take(3)
-        .collect();
+        let rstr: String = rng.gen_ascii_chars()
+                              .take(3)
+                              .collect();
 
 
-        let rnum : u32 = 0;
+        let rnum: u32 = 0;
 
         Tag {
             tag_prefix: rstr,
-            tag: rnum
+            tag: rnum,
         }
     }
 
@@ -91,122 +120,142 @@ impl Tag {
     }
 }
 
-#[derive(Debug)]
-pub enum IMAPClient {
-    Authenticated(MailServer),
-    UnAuthenticated(MailServer),
-    Selected(Mailbox),
-    Logout
-}
-
-
 impl IMAPClient {
     pub fn connect(imap: IMAPConnection) -> Result<IMAPClient, IMAPError> {
         let mut imap = imap;
 
         let stream = match &mut imap {
-            &mut IMAPConnection::Basic(ref mut stream)    => try!(IMAPClient::read_greeting(stream)),
-            &mut IMAPConnection::Ssl(ref mut stream)   => try!(IMAPClient::read_greeting(stream)),
-            &mut IMAPConnection::Disconnected    => return Err(IMAPError::ConnectError("Can not connect, IMAPConection in Disconnected state".to_owned()))
+            &mut IMAPConnection::Basic(ref mut stream) => try!(IMAPClient::read_greeting(stream)),
+            &mut IMAPConnection::Ssl(ref mut stream) => try!(IMAPClient::read_greeting(stream)),
+            &mut IMAPConnection::Disconnected =>
+                return Err(IMAPError::ConnectError("Can not connect, IMAPConection in \
+                                                    Disconnected state"
+                                                       .to_owned())),
         };
 
         let unauthenticated = MailServer {
             imap: imap,
-            tag: Tag::new()
+            tag: Tag::new(),
         };
 
         Ok(IMAPClient::UnAuthenticated(unauthenticated))
     }
 
-    pub fn login<IntoString: Into<String>>(self, username: IntoString, password: IntoString) -> Result<IMAPClient, (IMAPClient, IMAPError)> {
+    pub fn login<IntoString: Into<String>>(self,
+                                           username: IntoString,
+                                           password: IntoString)
+                                           -> Result<IMAPClient, (IMAPClient, IMAPError)> {
         let cmd = format!("LOGIN {} {}", username.into(), password.into());
 
         match self {
             IMAPClient::UnAuthenticated(mut server) => {
-                let cmd = format!("{} {}\r\n", server.tag.next_tag(), cmd);
+                let tag = server.tag.next_tag();
+                let cmd = format!("{} {}\r\n", tag, cmd);
                 match server.command(&cmd) {
-                    Ok(_)  => Ok(IMAPClient::Authenticated(server)),
-                    Err(e)  => Err((IMAPClient::UnAuthenticated(server), e)),
+                    Ok(res) => {
+                        match IMAPClient::check_tagged_response(res, &tag) {
+                                Ok(_)   =>  Ok(IMAPClient::Authenticated(server)),
+                                Err(e)  => Err((IMAPClient::UnAuthenticated(server), e))
+                            }
+                        },
+                    Err(e) => Err((IMAPClient::UnAuthenticated(server), e)),
                 }
-            },
+            }
             IMAPClient::Authenticated(server) => {
                 Ok(IMAPClient::Authenticated(server))
-            },
+            }
             IMAPClient::Selected(mut mailbox) => {
-                let cmd = format!("{} {}\r\n", mailbox.tag.next_tag(), cmd);
+                let tag = mailbox.tag.next_tag();
+                let cmd = format!("{} {}\r\n", tag, cmd);
                 match mailbox.command(&cmd) {
-                    Ok(_)  => Ok(IMAPClient::Selected(mailbox)),
-                    Err(e)  => Err((IMAPClient::Selected(mailbox), e)),
+                    Ok(_) => Ok(IMAPClient::Selected(mailbox)),
+                    Err(e) => Err((IMAPClient::Selected(mailbox), e)),
                 }
-            },
-            IMAPClient::Logout  => {
-                Err((IMAPClient::Logout, IMAPError::LoginError("Not valid to try to log in after Logout".to_owned())))
+            }
+            IMAPClient::Logout => {
+                Err((IMAPClient::Logout,
+                     IMAPError::LoginError("Not valid to try to log in after Logout".to_owned())))
             }
         }
 
     }
 
-    pub fn select<IntoString: Into<String>>(self, mailbox_name: IntoString) -> Result<IMAPClient, (IMAPClient, IMAPError)> {
+    pub fn select<IntoString: Into<String>>(self,
+                                            mailbox_name: IntoString)
+                                            -> Result<IMAPClient, (IMAPClient, IMAPError)> {
         let cmd = format!("SELECT {}", mailbox_name.into());
 
         match self {
             IMAPClient::UnAuthenticated(server) => {
-                Err((IMAPClient::UnAuthenticated(server), IMAPError::SelectError("Must authenticate before SELECT".to_owned())))
-            },
+                Err((IMAPClient::UnAuthenticated(server),
+                     IMAPError::SelectError("Must authenticate before SELECT".to_owned())))
+            }
             IMAPClient::Authenticated(mut server) => {
-                let cmd = format!("{} {}\r\n", server.tag.next_tag(), cmd);
-
+                let tag = server.tag.next_tag();
+                let cmd = format!("{} {}\r\n", tag, cmd);
                 match server.command(&cmd) {
-                    Ok(_)  => {
-                        let mailbox = Mailbox {
-                            imap: server.imap,
-                            tag: server.tag
-                        };
-                        Ok(IMAPClient::Selected(mailbox))
-                    },
-                    Err(e)  => Err((IMAPClient::UnAuthenticated(server), e)),
+                    Ok(res) => {
+                        match IMAPClient::check_response(res) {
+                                Ok(_)   => {
+                                    let mailbox = Mailbox {
+                                        imap: server.imap,
+                                        tag: server.tag,
+                                    };
+                                    Ok(IMAPClient::Selected(mailbox))
+                                },
+                                Err(e)  => Err((IMAPClient::UnAuthenticated(server), e))
+                            }
+                        },
+                    Err(e) => Err((IMAPClient::Authenticated(server), e)),
                 }
-            },
+            }
             IMAPClient::Selected(mut mailbox) => {
-                let cmd = format!("{} {}\r\n", mailbox.tag.next_tag(), cmd);
-
+                let tag = mailbox.tag.next_tag();
+                let cmd = format!("{} {}\r\n", tag, cmd);
                 match mailbox.command(&cmd) {
-                    Ok(_)  => {
-                        Ok(IMAPClient::Selected(mailbox))
-                    },
-                    Err(e)  => Err((IMAPClient::Selected(mailbox), e)),
+                    Ok(res) => {
+                        match IMAPClient::check_response(res) {
+                                Ok(_)   => {
+                                    Ok(IMAPClient::Selected(mailbox))
+                                },
+                                Err(e)  => {
+                                    Err((IMAPClient::Selected(mailbox), e))
+                                }
+                            }
+                        },
+                    Err(e) => Err((IMAPClient::Selected(mailbox), e)),
                 }
-            },
-            IMAPClient::Logout  => {
-                // Err((IMAPC))
-                //
-                        unimplemented!();
+            }
+            IMAPClient::Logout => {
+                Err((IMAPClient::Logout, IMAPError::SelectError("Can not select in Logout state".to_owned())))
             }
         }
     }
 
-    fn logout(self) -> Result<IMAPClient, (IMAPClient, IMAPError)> {
+    pub fn logout(self) -> Result<IMAPClient, (IMAPClient, IMAPError)> {
         let cmd = format!("LOGOUT");
 
         match self {
             IMAPClient::UnAuthenticated(server) => {
                 Ok(IMAPClient::Logout)
-            },
+            }
             IMAPClient::Authenticated(mut server) => {
-                let cmd = format!("{} {}\r\n", server.tag.next_tag(), cmd);
+                let tag = server.tag.next_tag();
+                let cmd = format!("{} {}\r\n", tag, cmd);
                 match server.command(&cmd) {
-                    Ok(_)  => Ok(IMAPClient::Logout),
-                    Err(e)  => Err((IMAPClient::Authenticated(server), e)),
+                    Ok(_) => Ok(IMAPClient::Logout),
+                    Err(e) => Err((IMAPClient::Authenticated(server), e)),
                 }
-            },
+            }
             IMAPClient::Selected(mut mailbox) => {
-                let cmd = format!("{} {}\r\n", mailbox.tag.next_tag(), cmd);
+                let tag = mailbox.tag.next_tag();
+                let cmd = format!("{} {}\r\n", tag, cmd);
                 match mailbox.command(&cmd) {
-                    Ok(_)  => Ok(IMAPClient::Logout),
-                    Err(e)  => Err((IMAPClient::Selected(mailbox), e)),
+                    Ok(_) => Ok(IMAPClient::Logout),
+                    Err(e) => Err((IMAPClient::Selected(mailbox), e)),
                 }
-            },
-            IMAPClient::Logout  => {
+            }
+            IMAPClient::Logout => {
                 Ok(IMAPClient::Logout)
             }
         }
@@ -216,39 +265,40 @@ impl IMAPClient {
 
         let mut buf = String::new();
         let _ = stream.read_to_string(&mut buf);
+        // try!(check_response());
         Ok(buf)
     }
-}
 
-pub type SequenceSet = (u32, u32);
+    fn check_response(response: String) -> Result<String, IMAPError> {
+        if response.len() < 4 {return Err(IMAPError::Invalid(response))}
+        let view: &[u8] = &response.as_bytes()[0..4];
 
+        match view {
+            b"* OK" => return Ok(response.to_owned()),
+            b"* NO" => return Err(IMAPError::No(response.to_owned())),
+            b"* BA" => return Err(IMAPError::Bad(response.to_owned())),
+            _ => return Err(IMAPError::Invalid(response.to_owned())),
+        }
+    }
 
-#[derive(Debug)]
-pub enum Macro {
-    All,
-    Fast,
-    Full,
-}
+    fn check_tagged_response(response: String, tag: &str) -> Result<String, IMAPError> {
+        if response.len() < tag.len() {return Err(IMAPError::Invalid(response))}
+        Ok(response)
+        let view: &[u8] = &response.as_bytes()[0..tag.len()];
 
-#[derive(Debug)]
-pub enum ResponseType {
-    OK,
-    No,
-    Bad,
-    Invalid
-}
+        if view == tag.as_bytes() {
+            let view: &[u8] = &response.as_bytes()[tag.len()..tag.len() + 3];
 
-
-#[derive(Debug)]
-pub struct Mailbox {
-    imap: IMAPConnection,
-    tag: Tag
-}
-
-#[derive(Debug)]
-pub struct MailServer {
-    imap: IMAPConnection,
-    tag: Tag
+            match view {
+                b" OK" => Ok(response.to_owned()),
+                b" NO" => Err(IMAPError::No(response.to_owned())),
+                b" BA" => Err(IMAPError::Bad(response.to_owned())),
+                _ => Err(IMAPError::Invalid(response.to_owned())),
+            }
+        } else {
+            Err(IMAPError::Invalid(response.to_owned()))
+        }
+    }
 }
 
 impl Mailbox {
@@ -271,14 +321,18 @@ impl Mailbox {
     // unimplemented!()
     // }
 
-    fn fetch(&mut self, sequence_set: SequenceSet) -> Result<String, IMAPError> {
+    pub fn fetch(&mut self, sequence_set: SequenceSet) -> Result<String, IMAPError> {
 
-        let args = format!("{}:{}",sequence_set.0.to_string(), sequence_set.1.to_string());
-        let cmd = format!("{} FETCH {}\r\n", self.tag.next_tag(), args);
+        let args = format!("{}:{}",
+                           sequence_set.0.to_string(),
+                           sequence_set.1.to_string());
+
+        let tag = self.tag.next_tag();
+        let cmd = format!("{} FETCH {}\r\n", tag, args);
 
         match self.command(&cmd) {
-            Ok(r)  => Ok(r),
-            Err(e)  => Err(e),
+            Ok(r) => IMAPClient::check_tagged_response(r, &tag),
+            Err(e) => Err(e),
         }
     }
 
@@ -295,33 +349,22 @@ impl Mailbox {
     // }
 
 
-    fn check_response(response: String) -> Result<String, IMAPError> {
-        let view : &[u8] = &response.as_bytes()[0..4];
-
-        match view {
-            b"* OK"  => return Ok(response.to_owned()),
-            b"* NO"  => return Err(IMAPError::No(response.to_owned())),
-            b"* BA"  => return Err(IMAPError::Bad(response.to_owned())),
-            _   => return Err(IMAPError::Invalid(response.to_owned())),
-        }
-    }
-
     fn command(&mut self, cmd: &str) -> Result<String, IMAPError> {
         match &mut self.imap {
             &mut IMAPConnection::Basic(ref mut stream) => {
                 let _ = stream.write(cmd.as_bytes());
                 let mut buf = String::new();
                 let _ = stream.read_to_string(&mut buf);
-                let response = try!(Mailbox::check_response(buf.clone()));
-                Ok(response)
-            },
+                println!("{}", buf);
+                Ok(buf)
+            }
             &mut IMAPConnection::Ssl(ref mut stream) => {
                 let _ = stream.write(cmd.as_bytes());
                 let mut buf = String::new();
                 let _ = stream.read_to_string(&mut buf);
-                let response = try!(Mailbox::check_response(buf.clone()));
-                Ok(response)
-            },
+                println!("{}", buf);
+                Ok(buf)
+            }
             &mut IMAPConnection::Disconnected =>
                 Err(IMAPError::LoginError("Not connected to server.".to_owned())),
         }
@@ -335,18 +378,16 @@ impl MailServer {
                 let _ = stream.write(cmd.as_bytes());
                 let mut buf = String::new();
                 let _ = stream.read_to_string(&mut buf);
-                let response = try!(Mailbox::check_response(buf.clone()));
                 println!("{}", buf);
                 Ok(buf)
-            },
+            }
             &mut IMAPConnection::Ssl(ref mut stream) => {
                 let _ = stream.write(cmd.as_bytes());
                 let mut buf = String::new();
                 let _ = stream.read_to_string(&mut buf);
-                let response = try!(Mailbox::check_response(buf.clone()));
                 println!("{}", buf);
                 Ok(buf)
-            },
+            }
             &mut IMAPConnection::Disconnected =>
                 Err(IMAPError::LoginError("Not connected to server.".to_owned())),
         }

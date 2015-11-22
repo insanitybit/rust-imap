@@ -15,7 +15,7 @@ pub enum IMAPError {
     ConnectError(String),
     No(String),
     Bad(String),
-    Invalid(String)
+    Invalid(String),
 }
 
 impl fmt::Display for IMAPError {
@@ -26,9 +26,9 @@ impl fmt::Display for IMAPError {
             IMAPError::LoginError(ref err) => write!(f, "Login error: {}", err),
             IMAPError::SelectError(ref err) => write!(f, "Select error: {}", err),
             IMAPError::ConnectError(ref err) => write!(f, "Connect error: {}", err),
-            IMAPError::No(ref err) => write!(f, "Connect error: {}", err),
-            IMAPError::Bad(ref err) => write!(f, "Connect error: {}", err),
-            IMAPError::Invalid(ref err) => write!(f, "Connect error: {}", err),
+            IMAPError::No(ref err) => write!(f, "IMAP Command returned 'No': {}", err),
+            IMAPError::Bad(ref err) => write!(f, "IMAP Command returned 'Bad': {}", err),
+            IMAPError::Invalid(ref err) => write!(f, "Invalid IMAP response: {}", err),
         }
     }
 }
