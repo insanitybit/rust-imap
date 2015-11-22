@@ -297,7 +297,7 @@ impl IMAPClient {
 
         let mut buf = String::new();
         let _ = stream.read_to_string(&mut buf);
-        // try!(check_response());
+        let buf = try!(IMAPClient::check_response(buf));
         Ok(buf)
     }
 
@@ -405,19 +405,38 @@ impl Mailbox {
     // unimplemented!()
     // }
 
-    pub fn fetch(&mut self, sequence_set: SequenceSet) -> Result<String, IMAPError> {
+    pub fn fetch(&mut self, sequence_set: SequenceSet) -> Result<Vec<String>, IMAPError> {
 
         let args = format!("{}:{}",
                            sequence_set.0.to_string(),
                            sequence_set.1.to_string());
 
         let tag = self.tag.next_tag();
-        let cmd = format!("{} FETCH {}\r\n", tag, args);
+        let cmd = format!("{} FETCH {} ALL\r\n", tag, args);
 
-        match self.command(&cmd) {
-            Ok(r) => IMAPClient::check_tagged_response(r, &tag),
-            Err(e) => Err(e),
+        let response = try!(self.command(&cmd));
+
+        let response = try!(Mailbox::parse_fetch_response(&response));
+        Ok(response)
+    }
+
+    fn parse_fetch_response(res: &str) -> Result<Vec<String>, IMAPError> {
+        let emailre = Regex::new(r"\* \d+ FETCH(.*)\r\n").unwrap();
+        let mut emails = Vec::new();
+        let captures = emailre.captures_iter(res);
+
+
+        for cap in captures {
+            if let Some(email) = cap.at(1) {
+                emails.push(email.to_owned());
+            }
         }
+
+        if emails.is_empty() {
+            return Err(IMAPError::Invalid(res.to_owned()));
+        }
+
+        Ok(emails)
     }
 
     // fn STORE() -> TypeName {
@@ -439,14 +458,12 @@ impl Mailbox {
                 let _ = stream.write(cmd.as_bytes());
                 let mut buf = String::new();
                 let _ = stream.read_to_string(&mut buf);
-                println!("{}", buf);
                 Ok(buf)
             }
             &mut IMAPConnection::Ssl(ref mut stream) => {
                 let _ = stream.write(cmd.as_bytes());
                 let mut buf = String::new();
                 let _ = stream.read_to_string(&mut buf);
-                println!("{}", buf);
                 Ok(buf)
             }
             &mut IMAPConnection::Disconnected =>
@@ -462,14 +479,12 @@ impl MailServer {
                 let _ = stream.write(cmd.as_bytes());
                 let mut buf = String::new();
                 let _ = stream.read_to_string(&mut buf);
-                println!("{}", buf);
                 Ok(buf)
             }
             &mut IMAPConnection::Ssl(ref mut stream) => {
                 let _ = stream.write(cmd.as_bytes());
                 let mut buf = String::new();
                 let _ = stream.read_to_string(&mut buf);
-                println!("{}", buf);
                 Ok(buf)
             }
             &mut IMAPConnection::Disconnected =>
