@@ -42,8 +42,6 @@ pub struct MailServer {
     tag: Tag,
 }
 
-
-
 #[derive(Debug)]
 pub struct Mailbox {
     imap: IMAPConnection,
@@ -70,7 +68,11 @@ pub struct MailboxResponse {
     permission: Option<String>
 }
 
-pub type SequenceSet = (u32, u32);
+#[derive(Debug)]
+pub struct Email;// {
+
+// pub type SequenceSet = (u32, u32);
+
 
 #[derive(Debug)]
 pub enum Macro {
@@ -78,6 +80,20 @@ pub enum Macro {
     Fast,
     Full,
 }
+
+pub enum DataItem {
+    SequenceSet(u32,u32),
+    Atom(u32),
+    Macro
+}
+
+impl From<(u32, u32)> for DataItem {
+    fn from(ss: (u32, u32)) -> DataItem {
+        DataItem::SequenceSet(ss.0, ss.1)
+    }
+}
+
+
 
 impl IMAPConnection {
 
@@ -405,11 +421,14 @@ impl Mailbox {
     // unimplemented!()
     // }
 
-    pub fn fetch(&mut self, sequence_set: SequenceSet) -> Result<Vec<String>, IMAPError> {
+    pub fn fetch<T: Into<DataItem>>(&mut self, data_item: T) -> Result<Vec<Email>, IMAPError> {
+        let data_item = data_item.into();
+        let args = match data_item {
+            DataItem::SequenceSet(l, h) => format!("{}:{}", l.to_string(), h.to_string()),
+            _                  => panic!()
 
-        let args = format!("{}:{}",
-                           sequence_set.0.to_string(),
-                           sequence_set.1.to_string());
+        };
+
 
         let tag = self.tag.next_tag();
         let cmd = format!("{} FETCH {} ALL\r\n", tag, args);
@@ -420,7 +439,7 @@ impl Mailbox {
         Ok(response)
     }
 
-    fn parse_fetch_response(res: &str) -> Result<Vec<String>, IMAPError> {
+    fn parse_fetch_response<'a>(res: &'a str) -> Result<Vec<Email>, IMAPError> {
         let emailre = Regex::new(r"\* \d+ FETCH(.*)\r\n").unwrap();
         let mut emails = Vec::new();
         let captures = emailre.captures_iter(res);
@@ -428,7 +447,7 @@ impl Mailbox {
 
         for cap in captures {
             if let Some(email) = cap.at(1) {
-                emails.push(email.to_owned());
+                emails.push(email);
             }
         }
 
@@ -436,7 +455,12 @@ impl Mailbox {
             return Err(IMAPError::Invalid(res.to_owned()));
         }
 
+        let emails = Mailbox::parse_emails(&emails);
         Ok(emails)
+    }
+
+    fn parse_emails(emails: &[&str]) -> Vec<Email> {
+        unimplemented!();
     }
 
     // fn STORE() -> TypeName {
