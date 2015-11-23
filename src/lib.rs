@@ -53,7 +53,7 @@ pub struct Mailbox {
     permanentflags: Option<String>,
     uidnext: Option<String>,
     uidvalidity: Option<String>,
-    permission: Option<String>
+    permission: Option<String>,
 }
 
 #[derive(Debug)]
@@ -65,13 +65,13 @@ pub struct MailboxResponse {
     permanentflags: Option<String>,
     uidnext: Option<String>,
     uidvalidity: Option<String>,
-    permission: Option<String>
+    permission: Option<String>,
 }
 
 #[derive(Debug)]
-pub struct Email;// {
-
-// pub type SequenceSet = (u32, u32);
+pub struct Email {
+    full_text: String,
+}
 
 
 #[derive(Debug)]
@@ -81,19 +81,22 @@ pub enum Macro {
     Full,
 }
 
-pub enum DataItem {
-    SequenceSet(u32,u32),
+pub enum SequenceSet {
+    Set(u32, u32),
     Atom(u32),
-    Macro
 }
 
-impl From<(u32, u32)> for DataItem {
-    fn from(ss: (u32, u32)) -> DataItem {
-        DataItem::SequenceSet(ss.0, ss.1)
+impl From<(u32, u32)> for SequenceSet {
+    fn from(ss: (u32, u32)) -> SequenceSet {
+        SequenceSet::Set(ss.0, ss.1)
     }
 }
 
-
+impl From<u32> for SequenceSet {
+    fn from(a: u32) -> SequenceSet {
+        SequenceSet::Atom(a)
+    }
+}
 
 impl IMAPConnection {
 
@@ -194,10 +197,10 @@ impl IMAPClient {
                 match server.command(&cmd) {
                     Ok(res) => {
                         match IMAPClient::check_tagged_response(res, &tag) {
-                                Ok(_)   =>  Ok(IMAPClient::Authenticated(server)),
-                                Err(e)  => Err((IMAPClient::UnAuthenticated(server), e))
-                            }
-                        },
+                            Ok(_) => Ok(IMAPClient::Authenticated(server)),
+                            Err(e) => Err((IMAPClient::UnAuthenticated(server), e)),
+                        }
+                    }
                     Err(e) => Err((IMAPClient::UnAuthenticated(server), e)),
                 }
             }
@@ -236,24 +239,24 @@ impl IMAPClient {
                 match server.command(&cmd) {
                     Ok(res) => {
                         match IMAPClient::check_select_response(&res, &tag) {
-                                Ok(mailres)   => {
-                                    let mailbox = Mailbox {
-                                        imap: server.imap,
-                                        tag: server.tag,
-                                        flags: mailres.flags,
-                                        exists: mailres.exists,
-                                        recent: mailres.recent,
-                                        unseen: mailres.unseen,
-                                        permanentflags: mailres.permanentflags,
-                                        uidnext: mailres.uidnext,
-                                        uidvalidity: mailres.uidvalidity,
-                                        permission: mailres.permission
-                                    };
-                                    Ok(IMAPClient::Selected(mailbox))
-                                },
-                                Err(e)  => Err((IMAPClient::UnAuthenticated(server), e))
+                            Ok(mailres) => {
+                                let mailbox = Mailbox {
+                                    imap: server.imap,
+                                    tag: server.tag,
+                                    flags: mailres.flags,
+                                    exists: mailres.exists,
+                                    recent: mailres.recent,
+                                    unseen: mailres.unseen,
+                                    permanentflags: mailres.permanentflags,
+                                    uidnext: mailres.uidnext,
+                                    uidvalidity: mailres.uidvalidity,
+                                    permission: mailres.permission,
+                                };
+                                Ok(IMAPClient::Selected(mailbox))
                             }
-                        },
+                            Err(e) => Err((IMAPClient::UnAuthenticated(server), e)),
+                        }
+                    }
                     Err(e) => Err((IMAPClient::Authenticated(server), e)),
                 }
             }
@@ -263,19 +266,20 @@ impl IMAPClient {
                 match mailbox.command(&cmd) {
                     Ok(res) => {
                         match IMAPClient::check_response(res) {
-                                Ok(_)   => {
-                                    Ok(IMAPClient::Selected(mailbox))
-                                },
-                                Err(e)  => {
-                                    Err((IMAPClient::Selected(mailbox), e))
-                                }
+                            Ok(_) => {
+                                Ok(IMAPClient::Selected(mailbox))
                             }
-                        },
+                            Err(e) => {
+                                Err((IMAPClient::Selected(mailbox), e))
+                            }
+                        }
+                    }
                     Err(e) => Err((IMAPClient::Selected(mailbox), e)),
                 }
             }
             IMAPClient::Logout => {
-                Err((IMAPClient::Logout, IMAPError::SelectError("Can not select in Logout state".to_owned())))
+                Err((IMAPClient::Logout,
+                     IMAPError::SelectError("Can not select in Logout state".to_owned())))
             }
         }
     }
@@ -313,6 +317,7 @@ impl IMAPClient {
 
         let mut buf = String::new();
         let _ = stream.read_to_string(&mut buf);
+        println!("{}", buf);
         let buf = try!(IMAPClient::check_response(buf));
         Ok(buf)
     }
@@ -321,13 +326,15 @@ impl IMAPClient {
         let cap = re.captures_iter(response).next();
 
         let exists = match cap {
-            Some(cap)   => cap.at(1),
-            None    => return Err(IMAPError::Invalid("Could not find required response command".to_owned()))
+            Some(cap) => cap.at(1),
+            None => return Err(IMAPError::Invalid("Could not find required response command"
+                                                      .to_owned())),
         };
 
         match exists {
             Some(value) => Ok(value.to_owned()),
-            None    => Err(IMAPError::Invalid("Could not find required response for command".to_owned()))
+            None =>
+                Err(IMAPError::Invalid("Could not find required response for command".to_owned())),
         }
     }
 
@@ -354,23 +361,25 @@ impl IMAPClient {
         let tagged_ok = tag.to_owned() + " OK";
 
         if let Some(index) = response.find(&tagged_ok) {
-            let view = &response[index+ tag.len()..];
+            let view = &response[index + tag.len()..];
             permission = IMAPClient::capture_response(view, permissionre).ok();
         }
         Ok(MailboxResponse {
-            exists:exists,
-            recent:recent,
-            flags:flags,
-            unseen:unseen,
-            permanentflags:permanentflags,
-            uidnext:uidnext,
-            uidvalidity:uidvalidity,
-            permission: permission
+            exists: exists,
+            recent: recent,
+            flags: flags,
+            unseen: unseen,
+            permanentflags: permanentflags,
+            uidnext: uidnext,
+            uidvalidity: uidvalidity,
+            permission: permission,
         })
     }
 
     fn check_response(response: String) -> Result<String, IMAPError> {
-        if response.len() < 4 {return Err(IMAPError::Invalid(response))}
+        if response.len() < 4 {
+            return Err(IMAPError::Invalid(response));
+        }
         let view: &[u8] = &response.as_bytes()[0..4];
 
         match view {
@@ -382,7 +391,9 @@ impl IMAPClient {
     }
 
     fn check_tagged_response(response: String, tag: &str) -> Result<String, IMAPError> {
-        if response.len() < tag.len() {return Err(IMAPError::Invalid(response))}
+        if response.len() < tag.len() {
+            return Err(IMAPError::Invalid(response));
+        }
 
         let view: &[u8] = &response.as_bytes()[0..tag.len()];
 
@@ -421,11 +432,11 @@ impl Mailbox {
     // unimplemented!()
     // }
 
-    pub fn fetch<T: Into<DataItem>>(&mut self, data_item: T) -> Result<Vec<Email>, IMAPError> {
+    pub fn fetch<T: Into<SequenceSet>>(&mut self, data_item: T) -> Result<Vec<Email>, IMAPError> {
         let data_item = data_item.into();
         let args = match data_item {
-            DataItem::SequenceSet(l, h) => format!("{}:{}", l.to_string(), h.to_string()),
-            _                  => panic!()
+            SequenceSet::Set(l, h) => format!("{}:{}", l.to_string(), h.to_string()),
+            _ => panic!(),
 
         };
 
@@ -460,7 +471,14 @@ impl Mailbox {
     }
 
     fn parse_emails(emails: &[&str]) -> Vec<Email> {
-        unimplemented!();
+        let mut parsed_emails: Vec<Email> = Vec::with_capacity(emails.len());
+        for email in emails {
+
+            let parsed_email = Email { full_text: (*email).to_owned() };
+            parsed_emails.push(parsed_email);
+        }
+
+        parsed_emails
     }
 
     // fn STORE() -> TypeName {

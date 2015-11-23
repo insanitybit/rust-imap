@@ -11,7 +11,7 @@ fn main() {
 
     // After 'login' command, the IMAPClient can only be Authenticated (success) or UnAuthenticated
     // (upon error). The original client is consumed and a new one, in the new state, is returned.
-    let client = match client.login("user", "password") {
+    let client = match client.login("username@email.com", "passwd") {
         Ok(client)  => client,
         Err((client, e))  => {
             match client {
@@ -30,13 +30,17 @@ fn main() {
 
         // Once we are in the Selected state we can access more commands through the 'Mailbox' struct
         if let &mut IMAPClient::Selected(ref mut inbox) = &mut client {
-            // Grab the first 3 emails
-            let emails = inbox.fetch((1,5000)).unwrap();
+            // fetch email '3'
+            let emails = inbox.fetch(3).unwrap();
+            println!("Fetched {} emails", emails.len());
+
+            // fetch emails 1 to 100
+            let emails = inbox.fetch((1,100)).unwrap();
             println!("Fetched {} emails", emails.len());
             // let mut client = client.logout().unwrap();
 
             // for email in emails {
-            //     println!("{}", email);
+            //     println!("{:#?}", email);
             // }
 
         }
