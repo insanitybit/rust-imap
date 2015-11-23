@@ -11,7 +11,7 @@ fn main() {
 
     // After 'login' command, the IMAPClient can only be Authenticated (success) or UnAuthenticated
     // (upon error). The original client is consumed and a new one, in the new state, is returned.
-    let client = match client.login("username", "password") {
+    let client = match client.login("user", "password") {
         Ok(client)  => client,
         Err((client, e))  => {
             match client {
@@ -25,21 +25,31 @@ fn main() {
     println!("{:#?}", client);
 
     // If we're authenticated we can select.
-    if let &IMAPClient::Authenticated(_) = &client {
-        let client = client.select("INBOX").unwrap();
+    if let IMAPClient::Authenticated(_) = client {
+        let mut client = client.select("INBOX").unwrap();
 
         // Once we are in the Selected state we can access more commands through the 'Mailbox' struct
-        if let IMAPClient::Selected(mut inbox) = client {
+        if let &mut IMAPClient::Selected(ref mut inbox) = &mut client {
             // Grab the first 3 emails
-            let emails = inbox.fetch((50,51)).unwrap();
+            let emails = inbox.fetch((1,5000)).unwrap();
+            println!("Fetched {} emails", emails.len());
+            // let mut client = client.logout().unwrap();
 
-
-            for email in emails {
-                println!("{}", email);
-            }
+            // for email in emails {
+            //     println!("{}", email);
+            // }
 
         }
+        let client = client.logout().unwrap();
+
+
+        if let IMAPClient::Logout = client {
+            println!("Logged out of server - this client is no longer usable.");
+        } else {
+            unreachable!()
+        }
     }
+
 
     // if let &mut IMAPClient::Selected(ref mut mailbox) = &mut client {
     //     let email = mailbox.fetch((0,2)).unwrap();

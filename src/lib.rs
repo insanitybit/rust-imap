@@ -415,7 +415,7 @@ impl Mailbox {
         let cmd = format!("{} FETCH {} ALL\r\n", tag, args);
 
         let response = try!(self.command(&cmd));
-
+        // println!("{}", response);
         let response = try!(Mailbox::parse_fetch_response(&response));
         Ok(response)
     }
