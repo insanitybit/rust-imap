@@ -1,7 +1,7 @@
 #![allow(unused_variables)]
 extern crate imap;
 
-use imap::{IMAPConnection, IMAPClient};
+use imap::{IMAPConnection, IMAPClient, Macro};
 
 fn main() {
 
@@ -31,11 +31,11 @@ fn main() {
         // Once we are in the Selected state we can access more commands through the 'Mailbox' struct
         if let &mut IMAPClient::Selected(ref mut inbox) = &mut client {
             // fetch email '3'
-            let emails = inbox.fetch(3).unwrap();
+            let emails = inbox.fetch(3, "ALL").unwrap();
             println!("Fetched {} emails", emails.len());
 
             // fetch emails 1 to 100
-            let emails = inbox.fetch((1,100)).unwrap();
+            let emails = inbox.fetch((1,100), Macro::All).unwrap();
             println!("Fetched {} emails", emails.len());
             // let mut client = client.logout().unwrap();
 

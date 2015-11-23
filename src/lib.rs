@@ -81,6 +81,30 @@ pub enum Macro {
     Full,
 }
 
+pub enum DataItem {
+    Macro(Macro),
+    Raw(String)
+}
+
+impl From<Macro> for DataItem {
+    fn from(m: Macro) -> DataItem {
+        DataItem::Macro(m)
+    }
+}
+
+impl From<String> for DataItem {
+    fn from(m: String) -> DataItem {
+        DataItem::Raw(m)
+    }
+}
+
+impl<'a> From<&'a str> for DataItem {
+    fn from(m: &str) -> DataItem {
+        DataItem::Raw(m.to_owned())
+    }
+}
+
+
 pub enum SequenceSet {
     Set(u32, u32),
     Atom(u32),
@@ -432,17 +456,29 @@ impl Mailbox {
     // unimplemented!()
     // }
 
-    pub fn fetch<T: Into<SequenceSet>>(&mut self, data_item: T) -> Result<Vec<Email>, IMAPError> {
+    pub fn fetch<T: Into<SequenceSet>, D: Into<DataItem>>(&mut self, sequence_set: T, data_item: D) -> Result<Vec<Email>, IMAPError> {
+        let sequence_set = sequence_set.into();
         let data_item = data_item.into();
-        let args = match data_item {
+
+        let args = match sequence_set {
             SequenceSet::Set(l, h) => format!("{}:{}", l.to_string(), h.to_string()),
             _ => panic!(),
 
         };
 
+        let data_item = match data_item {
+            DataItem::Macro(m)  => {
+                match m {
+                    Macro::All  => "ALL".to_owned(),
+                    Macro::Fast => "FAST".to_owned(),
+                    Macro::Full => "FULL".to_owned(),
+                }
+            },
+            DataItem::Raw(r)    => r
+        };
 
         let tag = self.tag.next_tag();
-        let cmd = format!("{} FETCH {} ALL\r\n", tag, args);
+        let cmd = format!("{} FETCH {} {}\r\n", tag, args, data_item);
 
         let response = try!(self.command(&cmd));
         // println!("{}", response);
